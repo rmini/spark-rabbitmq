@@ -46,7 +46,8 @@ object RabbitMQUtils {
       rabbitMQPort,
       None,
       Seq(),
-      storageLevel)
+      storageLevel,
+      (bytes) => new String(bytes))
   }
 
   /**
@@ -90,7 +91,8 @@ object RabbitMQUtils {
       rabbitMQPort,
       Some(exchangeName),
       routingKeys,
-      storageLevel)
+      storageLevel,
+      (bytes) => new String(bytes))
   }
 
   /**
@@ -112,5 +114,41 @@ object RabbitMQUtils {
     implicitly[ClassTag[AnyRef]].asInstanceOf[ClassTag[String]]
     createStreamFromRoutingKeys(jssc.ssc, rabbitMQHost, rabbitMQPort, exchangeName, scala.collection.JavaConversions
       .asScalaBuffer(routingKeys), storageLevel)
+  }
+}
+
+private class RabbitMQUtilsPythonHelper {
+  def createStreamFromAQueue(jssc: JavaStreamingContext,
+      rabbitMQHost: String,
+      rabbitMQPort: Int,
+      rabbitMQQueueName: String,
+      storageLevel: StorageLevel = StorageLevel.MEMORY_AND_DISK_SER_2): JavaReceiverInputDStream[Array[Byte]] = {
+    new RabbitMQInputDStream(
+      jssc.ssc,
+      Some(rabbitMQQueueName),
+      rabbitMQHost,
+      rabbitMQPort,
+      None,
+      Seq(),
+      storageLevel,
+      (bytes) => bytes)
+  }
+  
+  def createStreamFromRoutingKeys(jssc: JavaStreamingContext,
+                   rabbitMQHost: String,
+                   rabbitMQPort: Int,
+                   exchangeName: String,
+                   routingKeys: java.util.List[String],
+                   storageLevel: StorageLevel = StorageLevel.MEMORY_AND_DISK_SER_2
+                    ): JavaReceiverInputDStream[Array[Byte]] = {
+    new RabbitMQInputDStream(
+      jssc.ssc,
+      None,
+      rabbitMQHost,
+      rabbitMQPort,
+      Some(exchangeName),
+      scala.collection.JavaConversions.asScalaBuffer(routingKeys),
+      storageLevel,
+      (bytes) => bytes)
   }
 }

@@ -19,6 +19,7 @@ package com.stratio.receiver
 import java.util
 
 import scala.util._
+import scala.reflect.{classTag, ClassTag}
 
 import com.rabbitmq.client._
 import org.apache.spark.Logging
@@ -28,36 +29,39 @@ import org.apache.spark.streaming.dstream.ReceiverInputDStream
 import org.apache.spark.streaming.receiver.Receiver
 
 private[receiver]
-class RabbitMQInputDStream(
+class RabbitMQInputDStream[T: ClassTag](
                             @transient ssc_ : StreamingContext,
                             rabbitMQQueueName: Option[String],
                             rabbitMQHost: String,
                             rabbitMQPort: Int,
                             exchangeName: Option[String],
                             routingKeys: Seq[String],
-                            storageLevel: StorageLevel
-                            ) extends ReceiverInputDStream[String](ssc_) with Logging {
+                            storageLevel: StorageLevel,
+                            decoder: Array[Byte] => T
+                            ) extends ReceiverInputDStream[T](ssc_) with Logging {
 
-  override def getReceiver(): Receiver[String] = {
+  override def getReceiver(): Receiver[T] = {
     val DefaultRabbitMQPort = 5672
 
-    new RabbitMQReceiver(rabbitMQQueueName,
+    new RabbitMQReceiver[T](rabbitMQQueueName,
       Some(rabbitMQHost).getOrElse("localhost"),
       Some(rabbitMQPort).getOrElse(DefaultRabbitMQPort),
       exchangeName,
       routingKeys,
-      storageLevel)
+      storageLevel,
+      decoder)
   }
 }
 
 private[receiver]
-class RabbitMQReceiver(rabbitMQQueueName: Option[String],
+class RabbitMQReceiver[T: ClassTag](rabbitMQQueueName: Option[String],
                        rabbitMQHost: String,
                        rabbitMQPort: Int,
                        exchangeName: Option[String],
                        routingKeys: Seq[String],
-                       storageLevel: StorageLevel)
-  extends Receiver[String](storageLevel) with Logging {
+                       storageLevel: StorageLevel,
+                       decoder: Array[Byte] => T)
+  extends Receiver[T](storageLevel) with Logging {
 
   val DirectExchangeType: String = "direct"
 
@@ -88,18 +92,20 @@ class RabbitMQReceiver(rabbitMQQueueName: Option[String],
         queueName
       }
       case false => {
-        channel.queueDeclare(rabbitMQQueueName.get, false, false, false, new util.HashMap(0))
+        channel.queueDeclare(rabbitMQQueueName.get, true, false, false, new util.HashMap(0))
         rabbitMQQueueName.get
       }
     }
 
     log.info("RabbitMQ Input waiting for messages")
     val consumer: QueueingConsumer = new QueueingConsumer(channel)
-    channel.basicConsume(queueName, true, consumer)
+    channel.basicConsume(queueName, false, consumer)
 
     while (!isStopped) {
       val delivery: QueueingConsumer.Delivery = consumer.nextDelivery
-      store(new String(delivery.getBody))
+      log.info("delivering...")
+      store(decoder(delivery.getBody))
+      channel.basicAck(delivery.getEnvelope.getDeliveryTag, false)
     }
 
     log.info("it has been stopped")
